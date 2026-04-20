@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JSON 标注工具</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="directory-panel">
+          <div class="toolbar">
+            <label class="dir-caption" for="directoryInput">目录</label>
+            <input
+              id="directoryInput"
+              class="dir-input"
+              type="text"
+              placeholder="输入要遍历的目录"
+              spellcheck="false"
+            />
+            <button id="loadButton" class="primary">打开目录</button>
+          </div>
+        </div>
+      </header>
+
+      <div id="messageBar" class="message-bar hidden"></div>
+
+      <main class="content-grid">
+        <section class="panel image-panel">
+          <section id="sampleMetaBar" class="sample-meta hidden">
+            <div class="sample-meta-field">
+              <span class="sample-meta-label">tag</span>
+              <span id="sampleTagText" class="sample-meta-value"></span>
+            </div>
+            <div class="sample-meta-field">
+              <span class="sample-meta-label">extra</span>
+              <span id="sampleExtraText" class="sample-meta-value"></span>
+            </div>
+          </section>
+          <div class="image-frame">
+            <img id="previewImage" alt="当前样本图片" />
+            <div id="imagePlaceholder" class="image-placeholder">
+              当前样本没有可显示的图片
+            </div>
+          </div>
+          <div class="image-footer">
+            <div class="image-actions">
+              <button id="prevButton">上一个</button>
+              <button id="saveButton">保存</button>
+              <button id="nextButton" class="primary">下一个</button>
+              <span id="imageBasenameText" class="image-basename"></span>
+            </div>
+            <div class="status-line">
+              <span id="progressText">未加载目录</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel detail-panel">
+          <section class="card">
+            <div class="card-header">
+              <h2>关键点标注</h2>
+            </div>
+            <div id="keypointsList" class="keypoints-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

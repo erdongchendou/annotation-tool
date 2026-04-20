@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime state and temporary files
+.annotation_state.json
+*.log
+*.pid
+*.pid.lock
+*.tmp
+*.temp
+
+# Tool caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local datasets, generated outputs, and scratch directories
+data/
+datasets/
+outputs/
+results/
+runs/
+tmp/
