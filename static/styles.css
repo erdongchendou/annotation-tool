@@ -65,6 +65,12 @@ button.primary {
   border-color: transparent;
 }
 
+button.danger {
+  background: linear-gradient(135deg, #b54531, #8f2e1e);
+  color: #fff8f0;
+  border-color: transparent;
+}
+
 input,
 select {
   width: 100%;
@@ -303,6 +309,12 @@ select {
 .split-toolbar input {
   width: 120px;
   min-height: 34px;
+}
+
+.delete-task-button,
+.split-task-button {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 .parts-grid {

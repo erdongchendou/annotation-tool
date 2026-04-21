@@ -111,9 +111,17 @@ function renderTasks() {
     splitButton.dataset.taskId = task.id;
     splitButton.textContent = "切分任务";
 
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger delete-task-button";
+    deleteButton.dataset.action = "delete-task";
+    deleteButton.dataset.taskId = task.id;
+    deleteButton.textContent = "删除任务";
+
     splitToolbar.appendChild(splitLabel);
     splitToolbar.appendChild(splitInput);
     splitToolbar.appendChild(splitButton);
+    splitToolbar.appendChild(deleteButton);
 
     header.appendChild(titleBlock);
     header.appendChild(splitToolbar);
@@ -255,6 +263,37 @@ async function splitTask(taskId, partCount) {
   }
 }
 
+async function deleteTask(taskId) {
+  if (state.loading || !taskId) {
+    return;
+  }
+
+  const task = state.tasks.find((item) => item.id === taskId);
+  const taskName = (task && task.name) || taskId;
+  const confirmed = window.confirm(`确定删除任务“${taskName}”吗？`);
+  if (!confirmed) {
+    return;
+  }
+
+  setLoading(true);
+  setMessage("", "info");
+  try {
+    const result = await fetchJson("/api/tasks/delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ taskId }),
+    });
+    await loadTasks();
+    setMessage(`任务已删除：${result.task.name || taskId}`, "success");
+  } catch (error) {
+    setMessage(error.message, "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function copyLink(link) {
   try {
     await navigator.clipboard.writeText(link);
@@ -285,6 +324,12 @@ function registerEvents() {
         return;
       }
       await splitTask(taskId, input.value);
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-action='delete-task']");
+    if (deleteButton) {
+      await deleteTask(deleteButton.dataset.taskId || "");
       return;
     }
 

@@ -442,6 +442,21 @@ class TaskStore(object):
             save_task_state_file(self._state)
             return {"changed": True, "task": self._summarize_task(task)}
 
+    def delete_task(self, task_id):
+        if not task_id:
+            raise ValueError("任务 ID 不能为空。")
+
+        with self._lock:
+            tasks = self._state.setdefault("tasks", {})
+            task = tasks.get(task_id)
+            if not isinstance(task, dict):
+                raise ValueError("任务不存在：%s" % task_id)
+
+            summary = self._summarize_task(task)
+            del tasks[task_id]
+            save_task_state_file(self._state)
+            return {"deleted": True, "task": summary}
+
     def get_task(self, task_id):
         with self._lock:
             return copy.deepcopy(self._get_task_entry(task_id))
@@ -543,6 +558,9 @@ class AnnotationApp(object):
 
     def split_task(self, task_id, part_count):
         return self.task_store.split_task(task_id, part_count)
+
+    def delete_task(self, task_id):
+        return self.task_store.delete_task(task_id)
 
     def _build_item(self, directory, json_path, target_index, total, options, session_info):
         with open(json_path, "r", encoding="utf-8") as handle:
@@ -890,6 +908,8 @@ class AnnotationHandler(BaseHTTPRequestHandler):
                 return self._handle_import_task()
             if parsed.path == "/api/tasks/split":
                 return self._handle_split_task()
+            if parsed.path == "/api/tasks/delete":
+                return self._handle_delete_task()
             return self._send_error_json(404, "未找到请求的资源。")
         except Exception as exc:
             return self._send_error_json(500, str(exc))
@@ -966,6 +986,11 @@ class AnnotationHandler(BaseHTTPRequestHandler):
     def _handle_split_task(self):
         body = self._read_json_body()
         result = self.app.split_task(body.get("taskId", ""), body.get("partCount", 0))
+        return self._send_json(result)
+
+    def _handle_delete_task(self):
+        body = self._read_json_body()
+        result = self.app.delete_task(body.get("taskId", ""))
         return self._send_json(result)
 
     def _handle_image(self, query):
