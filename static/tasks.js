@@ -49,7 +49,7 @@ function formatTimestamp(value) {
 }
 
 function buildPartUrl(taskId, partId) {
-  const url = new URL("/", window.location.href);
+  const url = new URL("/annotate", window.location.href);
   url.searchParams.set("taskId", taskId);
   url.searchParams.set("partId", partId);
   return url.toString();
@@ -143,12 +143,6 @@ function renderTasks() {
       partMeta.className = "part-meta";
       partMeta.textContent = `共 ${part.fileCount} 个文件，当前位置 ${part.currentPosition}/${part.fileCount}`;
 
-      const partCurrentPath = document.createElement("div");
-      partCurrentPath.className = "part-meta";
-      partCurrentPath.textContent = part.currentRelativePath
-        ? `当前文件：${part.currentRelativePath}`
-        : "当前文件：暂无";
-
       const partUrl = buildPartUrl(task.id, part.id);
 
       const partLinkRow = document.createElement("div");
@@ -179,7 +173,6 @@ function renderTasks() {
 
       partCard.appendChild(partName);
       partCard.appendChild(partMeta);
-      partCard.appendChild(partCurrentPath);
       partCard.appendChild(partLinkRow);
       partsGrid.appendChild(partCard);
     });
@@ -305,8 +298,6 @@ function registerEvents() {
 async function bootstrap() {
   setLoading(true);
   try {
-    const config = await fetchJson("/api/config");
-    elements.taskDirectoryInput.value = config.defaultDirectory || "";
     registerEvents();
     await loadTasks();
   } catch (error) {

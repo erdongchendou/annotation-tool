@@ -109,12 +109,14 @@ select {
 
 .directory-panel {
   display: grid;
+  width: 100%;
 }
 
 .toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .toolbar.compact {
@@ -187,6 +189,13 @@ select {
   white-space: nowrap;
 }
 
+#importTaskButton {
+  flex: 0 0 112px;
+  min-width: 112px;
+  padding: 4px 16px;
+  white-space: nowrap;
+}
+
 .dir-caption,
 .summary-item span {
   color: var(--muted);
@@ -235,16 +244,19 @@ select {
 
 .tasks-list {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .task-card {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.68);
-  border: 1px solid rgba(108, 86, 55, 0.12);
+  background: linear-gradient(180deg, rgba(245, 236, 224, 0.95), rgba(235, 221, 202, 0.88));
+  border: 1px solid rgba(155, 77, 35, 0.26);
+  box-shadow:
+    0 10px 22px rgba(108, 86, 55, 0.08),
+    inset 0 0 0 1px rgba(255, 251, 246, 0.5);
 }
 
 .task-card-header {
@@ -257,7 +269,7 @@ select {
 
 .task-card-title {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .task-name {
@@ -296,13 +308,13 @@ select {
 .parts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .part-card {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 12px;
   border-radius: 14px;
   background: rgba(255, 250, 242, 0.9);
   border: 1px solid rgba(108, 86, 55, 0.12);

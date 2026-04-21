@@ -654,20 +654,16 @@ async function bootstrap() {
     const taskId = pageParams.get("taskId") || "";
     const partId = pageParams.get("partId") || "";
 
-    if (taskId || partId) {
-      state.sessionType = "task";
-      state.taskId = taskId;
-      state.partId = partId;
-      updateSessionChrome();
-      await loadSession({ taskId, partId });
-    } else if (config.defaultDirectoryExists) {
-      await loadSession(config.defaultDirectory || "");
-    } else {
-      setMessage(
-        `默认目录不存在：${config.defaultDirectory}。请填入服务器上的真实目录后点击“打开目录”。`,
-        "error"
-      );
+    if (!taskId || !partId) {
+      window.location.replace("/");
+      return;
     }
+
+    state.sessionType = "task";
+    state.taskId = taskId;
+    state.partId = partId;
+    updateSessionChrome();
+    await loadSession({ taskId, partId });
   } catch (error) {
     registerEvents();
     setMessage(error.message, "error");

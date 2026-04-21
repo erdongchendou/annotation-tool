@@ -847,9 +847,11 @@ class AnnotationHandler(BaseHTTPRequestHandler):
 
         try:
             if route == "/":
-                return self._serve_static_file("index.html")
+                return self._serve_static_file("tasks.html")
             if route in ("/tasks", "/tasks/"):
                 return self._serve_static_file("tasks.html")
+            if route in ("/annotate", "/annotate/"):
+                return self._serve_static_file("index.html")
             if route.startswith("/static/"):
                 relative_path = route[len("/static/") :]
                 return self._serve_static_file(relative_path)
