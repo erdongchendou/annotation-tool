@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>任务切分</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="topbar-row">
+          <div class="directory-panel">
+            <div class="toolbar">
+              <label class="dir-caption" for="taskDirectoryInput">目录</label>
+              <input
+                id="taskDirectoryInput"
+                class="dir-input"
+                type="text"
+                placeholder="输入要导入为任务的目录"
+                spellcheck="false"
+              />
+              <button id="importTaskButton" class="primary">导入任务</button>
+            </div>
+          </div>
+          <a class="nav-link" href="/">返回标注页</a>
+        </div>
+      </header>
+
+      <div id="taskMessageBar" class="message-bar hidden"></div>
+
+      <main class="tasks-layout">
+        <section class="panel">
+          <div class="card-header">
+            <h2>任务列表</h2>
+            <span id="taskCountText" class="panel-note">0 个任务</span>
+          </div>
+          <div id="tasksEmptyState" class="empty-state">
+            还没有任务。先导入一个目录，再按需要切分成多个子任务。
+          </div>
+          <div id="tasksList" class="tasks-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/tasks.js"></script>
+  </body>
+</html>

@@ -1,5 +1,14 @@
+const pageParams = new URLSearchParams(window.location.search);
+
 const state = {
+  sessionType: "directory",
   directory: "",
+  taskId: "",
+  taskName: "",
+  partId: "",
+  partName: "",
+  partIndex: 0,
+  partCount: 0,
   index: 0,
   total: 0,
   options: [],
@@ -9,8 +18,12 @@ const state = {
 };
 
 const elements = {
+  directoryPanel: document.getElementById("directoryPanel"),
   directoryInput: document.getElementById("directoryInput"),
   loadButton: document.getElementById("loadButton"),
+  taskSessionPanel: document.getElementById("taskSessionPanel"),
+  taskSessionTitle: document.getElementById("taskSessionTitle"),
+  taskSessionSubtitle: document.getElementById("taskSessionSubtitle"),
   prevButton: document.getElementById("prevButton"),
   saveButton: document.getElementById("saveButton"),
   nextButton: document.getElementById("nextButton"),
@@ -21,6 +34,7 @@ const elements = {
   sampleTagText: document.getElementById("sampleTagText"),
   sampleExtraText: document.getElementById("sampleExtraText"),
   imageBasenameText: document.getElementById("imageBasenameText"),
+  imagePathText: document.getElementById("imagePathText"),
   keypointsList: document.getElementById("keypointsList"),
   messageBar: document.getElementById("messageBar"),
 };
@@ -37,11 +51,54 @@ function setMessage(message, type) {
 
 function setLoading(loading) {
   state.loading = loading;
-  elements.loadButton.disabled = loading;
-  elements.directoryInput.disabled = loading;
+  elements.loadButton.disabled = loading || state.sessionType === "task";
+  elements.directoryInput.disabled = loading || state.sessionType === "task";
   elements.prevButton.disabled = loading || state.index <= 0;
   elements.saveButton.disabled = loading || !state.item;
   elements.nextButton.disabled = loading || !state.item || state.index >= state.total - 1;
+}
+
+function hasTaskContext(session = {}) {
+  const taskId =
+    typeof session.taskId === "string" ? session.taskId : state.taskId;
+  const partId =
+    typeof session.partId === "string" ? session.partId : state.partId;
+  return Boolean(taskId || partId);
+}
+
+function buildSessionParams(session = {}) {
+  const params = new URLSearchParams();
+
+  if (hasTaskContext(session)) {
+    const taskId =
+      typeof session.taskId === "string" ? session.taskId : state.taskId;
+    const partId =
+      typeof session.partId === "string" ? session.partId : state.partId;
+    params.set("taskId", taskId);
+    params.set("partId", partId);
+    return params;
+  }
+
+  const directory =
+    typeof session.directory === "string" ? session.directory : state.directory;
+  params.set("directory", directory);
+  return params;
+}
+
+function updateSessionChrome() {
+  const taskMode = state.sessionType === "task";
+  elements.directoryPanel.classList.toggle("hidden", taskMode);
+  elements.taskSessionPanel.classList.toggle("hidden", !taskMode);
+
+  if (!taskMode) {
+    elements.taskSessionTitle.textContent = "";
+    elements.taskSessionSubtitle.textContent = "";
+    return;
+  }
+
+  const titleParts = [state.taskName, state.partName].filter(Boolean);
+  elements.taskSessionTitle.textContent = titleParts.join(" ");
+  elements.taskSessionSubtitle.textContent = state.directory || "";
 }
 
 function cloneKeypoints(keypoints) {
@@ -343,6 +400,10 @@ function renderImage(item) {
   }
 }
 
+function renderImagePath(item) {
+  elements.imagePathText.textContent = item.imagePath || "当前样本没有可显示的图片路径";
+}
+
 function renderItem(item) {
   state.item = {
     ...item,
@@ -352,7 +413,14 @@ function renderItem(item) {
       keypoints: cloneKeypoints(item.parsed.keypoints),
     },
   };
+  state.sessionType = item.sessionType || "directory";
   state.directory = item.directory;
+  state.taskId = item.taskId || "";
+  state.taskName = item.taskName || "";
+  state.partId = item.partId || "";
+  state.partName = item.partName || "";
+  state.partIndex = Number.isFinite(item.partIndex) ? item.partIndex : 0;
+  state.partCount = Number.isFinite(item.partCount) ? item.partCount : 0;
   state.index = item.index;
   state.total = item.total;
   state.dirty = false;
@@ -361,8 +429,11 @@ function renderItem(item) {
   elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件`;
   elements.imageBasenameText.textContent = getBasename(state.item.imagePath);
 
+  mergeOptionValues(item.options || []);
   collectOptionsFromItem(state.item);
+  updateSessionChrome();
   renderImage(state.item);
+  renderImagePath(state.item);
   renderSampleMeta(state.item);
   renderKeypoints();
   refreshButtons();
@@ -373,16 +444,18 @@ function refreshButtons() {
   elements.nextButton.disabled =
     state.loading || !state.item || state.index >= state.total - 1;
   elements.saveButton.disabled = state.loading || !state.item;
-  elements.loadButton.disabled = state.loading;
-  elements.directoryInput.disabled = state.loading;
+  elements.loadButton.disabled = state.loading || state.sessionType === "task";
+  elements.directoryInput.disabled = state.loading || state.sessionType === "task";
 
   if (!state.item) {
     return;
   }
+  const sessionSuffix =
+    state.sessionType === "task" && state.partName ? ` | ${state.partName}` : "";
   if (state.dirty) {
-    elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件（有未保存修改）`;
+    elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件（有未保存修改）${sessionSuffix}`;
   } else {
-    elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件`;
+    elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件${sessionSuffix}`;
   }
 }
 
@@ -399,8 +472,11 @@ async function loadSession(directory) {
   setLoading(true);
   setMessage("", "info");
   try {
-    const target = directory || elements.directoryInput.value.trim();
-    const data = await fetchJson(`/api/session?directory=${encodeURIComponent(target)}`);
+    const session =
+      typeof directory === "object"
+        ? directory
+        : { directory: directory || elements.directoryInput.value.trim() };
+    const data = await fetchJson(`/api/session?${buildSessionParams(session).toString()}`);
     state.options = [];
     mergeOptionValues(data.options || []);
     renderItem(data.item);
@@ -413,14 +489,17 @@ async function loadSession(directory) {
 }
 
 async function loadItem(index) {
-  if (!state.directory) {
+  if (state.sessionType === "task" && (!state.taskId || !state.partId)) {
+    return;
+  }
+  if (state.sessionType !== "task" && !state.directory) {
     return;
   }
   setLoading(true);
   try {
-    const item = await fetchJson(
-      `/api/item?directory=${encodeURIComponent(state.directory)}&index=${index}`
-    );
+    const params = buildSessionParams();
+    params.set("index", index);
+    const item = await fetchJson(`/api/item?${params.toString()}`);
     renderItem(item);
     setMessage("", "info");
   } catch (error) {
@@ -443,7 +522,10 @@ async function saveCurrent(showMessage = true) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        sessionType: state.sessionType,
         directory: state.directory,
+        taskId: state.taskId,
+        partId: state.partId,
         index: state.index,
         keypoints: state.item.parsed.keypoints,
         overallResult: state.item.parsed.overallResult,
@@ -569,7 +651,16 @@ async function bootstrap() {
     const config = await fetchJson("/api/config");
     elements.directoryInput.value = config.defaultDirectory || "";
     registerEvents();
-    if (config.defaultDirectoryExists) {
+    const taskId = pageParams.get("taskId") || "";
+    const partId = pageParams.get("partId") || "";
+
+    if (taskId || partId) {
+      state.sessionType = "task";
+      state.taskId = taskId;
+      state.partId = partId;
+      updateSessionChrome();
+      await loadSession({ taskId, partId });
+    } else if (config.defaultDirectoryExists) {
       await loadSession(config.defaultDirectory || "");
     } else {
       setMessage(

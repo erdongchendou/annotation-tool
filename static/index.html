@@ -9,18 +9,26 @@
   <body>
     <div class="page-shell">
       <header class="topbar">
-        <div class="directory-panel">
-          <div class="toolbar">
-            <label class="dir-caption" for="directoryInput">目录</label>
-            <input
-              id="directoryInput"
-              class="dir-input"
-              type="text"
-              placeholder="输入要遍历的目录"
-              spellcheck="false"
-            />
-            <button id="loadButton" class="primary">打开目录</button>
+        <div class="topbar-row">
+          <div id="directoryPanel" class="directory-panel">
+            <div class="toolbar">
+              <label class="dir-caption" for="directoryInput">目录</label>
+              <input
+                id="directoryInput"
+                class="dir-input"
+                type="text"
+                placeholder="输入要遍历的目录"
+                spellcheck="false"
+              />
+              <button id="loadButton" class="primary">打开目录</button>
+            </div>
           </div>
+          <div id="taskSessionPanel" class="task-session hidden">
+            <div class="task-session-caption">任务</div>
+            <div id="taskSessionTitle" class="task-session-title"></div>
+            <div id="taskSessionSubtitle" class="task-session-subtitle"></div>
+          </div>
+          <a class="nav-link" href="/tasks">任务切分</a>
         </div>
       </header>
 
@@ -63,6 +71,12 @@
               <h2>关键点标注</h2>
             </div>
             <div id="keypointsList" class="keypoints-list"></div>
+          </section>
+          <section class="card">
+            <div class="card-header">
+              <h2>图片完整路径</h2>
+            </div>
+            <div id="imagePathText" class="info-block"></div>
           </section>
         </aside>
       </main>
