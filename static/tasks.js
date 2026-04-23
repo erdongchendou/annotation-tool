@@ -5,6 +5,7 @@ const state = {
 
 const elements = {
   taskDirectoryInput: document.getElementById("taskDirectoryInput"),
+  taskTypeSelect: document.getElementById("taskTypeSelect"),
   importTaskButton: document.getElementById("importTaskButton"),
   taskMessageBar: document.getElementById("taskMessageBar"),
   taskCountText: document.getElementById("taskCountText"),
@@ -26,6 +27,7 @@ function setLoading(loading) {
   state.loading = loading;
   elements.importTaskButton.disabled = loading;
   elements.taskDirectoryInput.disabled = loading;
+  elements.taskTypeSelect.disabled = loading;
 }
 
 async function fetchJson(url, options) {
@@ -48,11 +50,16 @@ function formatTimestamp(value) {
   return parsed.toLocaleString("zh-CN", { hour12: false });
 }
 
-function buildPartUrl(taskId, partId) {
-  const url = new URL("/annotate", window.location.href);
+function buildPartUrl(taskId, partId, taskType) {
+  const route = taskType === "QA" ? "/conversation-annotate" : "/annotate";
+  const url = new URL(route, window.location.href);
   url.searchParams.set("taskId", taskId);
   url.searchParams.set("partId", partId);
   return url.toString();
+}
+
+function formatTaskType(taskType) {
+  return taskType === "QA" ? "QA" : "key_points";
 }
 
 function renderTasks() {
@@ -75,6 +82,10 @@ function renderTasks() {
     taskName.className = "task-name";
     taskName.textContent = task.name || task.id;
 
+    const taskTypeBadge = document.createElement("span");
+    taskTypeBadge.className = "task-type-badge";
+    taskTypeBadge.textContent = formatTaskType(task.taskType);
+
     const taskDirectory = document.createElement("div");
     taskDirectory.className = "task-directory";
     taskDirectory.textContent = task.directory || "";
@@ -86,6 +97,7 @@ function renderTasks() {
     )}`;
 
     titleBlock.appendChild(taskName);
+    titleBlock.appendChild(taskTypeBadge);
     titleBlock.appendChild(taskDirectory);
     titleBlock.appendChild(taskMeta);
 
@@ -151,7 +163,7 @@ function renderTasks() {
       partMeta.className = "part-meta";
       partMeta.textContent = `共 ${part.fileCount} 个文件，当前位置 ${part.currentPosition}/${part.fileCount}`;
 
-      const partUrl = buildPartUrl(task.id, part.id);
+      const partUrl = buildPartUrl(task.id, part.id, task.taskType);
 
       const partLinkRow = document.createElement("div");
       partLinkRow.className = "part-link-row";
@@ -202,6 +214,7 @@ async function importTask() {
   }
 
   const directory = elements.taskDirectoryInput.value.trim();
+  const taskType = elements.taskTypeSelect.value || "key_points";
   if (!directory) {
     setMessage("请先输入要导入的目录。", "error");
     return;
@@ -215,13 +228,13 @@ async function importTask() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ directory }),
+      body: JSON.stringify({ directory, taskType }),
     });
     await loadTasks();
     setMessage(
       result.created
-        ? `任务已导入：${result.task.name}`
-        : `该目录已存在任务，已复用：${result.task.name}`,
+        ? `任务已导入：${result.task.name} (${formatTaskType(result.task.taskType)})`
+        : `该目录的 ${formatTaskType(result.task.taskType)} 任务已存在，已复用：${result.task.name}`,
       "success"
     );
   } catch (error) {

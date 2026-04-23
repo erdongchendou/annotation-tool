@@ -23,6 +23,10 @@ TASK_STATE_PATH = os.path.join(BASE_DIR, ".annotation_tasks.json")
 DEFAULT_DIRECTORY = "/data01/erdong/data/mllm/key_points_verification_data/guard1211_high_priority_intermediate"
 DEFAULT_OPTIONS = []
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
+CONVERSATION_PAIR_LIMIT = 3
+TASK_TYPE_KEY_POINTS = "key_points"
+TASK_TYPE_QA = "QA"
+SUPPORTED_TASK_TYPES = [TASK_TYPE_KEY_POINTS, TASK_TYPE_QA]
 ZERO_WIDTH_RE = re.compile(u"[\u200B-\u200D\u2060\ufeff]")
 WHITESPACE_RE = re.compile(r"\s+", re.UNICODE)
 
@@ -35,6 +39,40 @@ def normalize_directory(path):
 
 def now_timestamp():
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def normalize_task_type(task_type):
+    value = sanitize_annotation_text(task_type or "")
+    if value.lower() == TASK_TYPE_KEY_POINTS:
+        return TASK_TYPE_KEY_POINTS
+    if value.upper() == TASK_TYPE_QA:
+        return TASK_TYPE_QA
+    raise ValueError("任务类型非法：%s" % (task_type or ""))
+
+
+def get_task_type(task, default=TASK_TYPE_KEY_POINTS):
+    if not isinstance(task, dict):
+        return default
+    raw_value = task.get("taskType", "")
+    if not sanitize_annotation_text(raw_value or ""):
+        return default
+    try:
+        return normalize_task_type(raw_value)
+    except ValueError:
+        return default
+
+
+def has_explicit_task_type(task):
+    if not isinstance(task, dict):
+        return False
+    raw_value = task.get("taskType", "")
+    if not sanitize_annotation_text(raw_value or ""):
+        return False
+    try:
+        normalize_task_type(raw_value)
+        return True
+    except ValueError:
+        return False
 
 
 def normalize_options(options):
@@ -191,8 +229,79 @@ def sanitize_annotation_value(value):
         return sanitize_annotation_text(str(value))
 
 
+def sanitize_conversation_text(text):
+    if not isinstance(text, str):
+        return ""
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = ZERO_WIDTH_RE.sub("", cleaned)
+    cleaned = cleaned.replace(u"\u00a0", " ").replace(u"\u3000", " ")
+    return cleaned.strip()
+
+
+def sanitize_conversation_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return sanitize_conversation_text(value)
+    if isinstance(value, (int, float, bool)):
+        return sanitize_conversation_text(str(value))
+    try:
+        return sanitize_conversation_text(json.dumps(value, ensure_ascii=False))
+    except Exception:
+        return sanitize_conversation_text(str(value))
+
+
 def stringify_annotation_value(value):
     return sanitize_annotation_value(value)
+
+
+def build_conversation_pairs(record, limit=CONVERSATION_PAIR_LIMIT):
+    pairs = []
+    pending_question = None
+    conversations = record.get("conversations", [])
+    if not isinstance(conversations, list):
+        conversations = []
+
+    for item in conversations:
+        if len(pairs) >= limit:
+            break
+        if not isinstance(item, dict):
+            continue
+
+        role = item.get("from")
+        value = sanitize_conversation_value(item.get("value"))
+
+        if role == "human":
+            if pending_question is not None and len(pairs) < limit:
+                pairs.append({"question": sanitize_conversation_value(pending_question), "answer": ""})
+            pending_question = value
+            continue
+
+        if role == "gpt":
+            pairs.append({"question": sanitize_conversation_value(pending_question), "answer": value})
+            pending_question = None
+
+    if pending_question is not None and len(pairs) < limit:
+        pairs.append({"question": sanitize_conversation_value(pending_question), "answer": ""})
+
+    while len(pairs) < limit:
+        pairs.append({"question": "", "answer": ""})
+
+    return pairs[:limit]
+
+
+def build_saved_conversations(conversation_pairs, limit=CONVERSATION_PAIR_LIMIT):
+    conversations = []
+    for pair in list(conversation_pairs or [])[:limit]:
+        if not isinstance(pair, dict):
+            continue
+        question = sanitize_conversation_value(pair.get("question"))
+        answer = sanitize_conversation_value(pair.get("answer"))
+        if not answer:
+            continue
+        conversations.append(OrderedDict([("from", "human"), ("value", question)]))
+        conversations.append(OrderedDict([("from", "gpt"), ("value", answer)]))
+    return conversations
 
 
 def collect_payload_options(payload):
@@ -333,6 +442,7 @@ class TaskStore(object):
         return {
             "id": task.get("id", ""),
             "name": task.get("name", ""),
+            "taskType": get_task_type(task),
             "directory": task.get("directory", ""),
             "total": len(task.get("files", [])),
             "createdAt": task.get("createdAt", ""),
@@ -341,6 +451,19 @@ class TaskStore(object):
             "optionsCount": len(normalize_options(task.get("options", []))),
             "parts": parts,
         }
+
+    def _refresh_existing_task(self, task, relative_files, options, task_type):
+        existing_files = task.get("files", [])
+        if existing_files != relative_files:
+            if task.get("parts"):
+                raise ValueError(
+                    "该目录已经导入并切分过任务，且当前目录文件列表与任务快照不一致。"
+                )
+            task["files"] = relative_files
+        task["options"] = normalize_options(list(task.get("options", [])) + list(options or []))
+        task.setdefault("name", os.path.basename(task.get("directory", "").rstrip(os.sep)) or task.get("directory", ""))
+        task["taskType"] = task_type
+        task["updatedAt"] = now_timestamp()
 
     def _part_layout_matches(self, parts, layouts):
         if len(parts or []) != len(layouts):
@@ -362,29 +485,37 @@ class TaskStore(object):
             )
             return [self._summarize_task(task) for task in tasks]
 
-    def import_task(self, directory, files, options):
+    def import_task(self, directory, files, options, task_type):
         target_directory = normalize_directory(directory)
+        target_task_type = normalize_task_type(task_type)
         relative_files = [os.path.relpath(file_path, target_directory) for file_path in files]
 
         with self._lock:
             tasks = self._state.setdefault("tasks", {})
+            exact_match = None
+            legacy_match = None
             for task in tasks.values():
                 if not isinstance(task, dict):
                     continue
                 if task.get("directory") != target_directory:
                     continue
-                existing_files = task.get("files", [])
-                if existing_files != relative_files:
-                    if task.get("parts"):
-                        raise ValueError(
-                            "该目录已经导入并切分过任务，且当前目录文件列表与任务快照不一致。"
-                        )
-                    task["files"] = relative_files
-                task["options"] = normalize_options(list(task.get("options", [])) + list(options or []))
-                task.setdefault("name", os.path.basename(target_directory.rstrip(os.sep)) or target_directory)
-                task["updatedAt"] = now_timestamp()
+                if has_explicit_task_type(task):
+                    if get_task_type(task) != target_task_type:
+                        continue
+                    exact_match = task
+                    break
+                if legacy_match is None:
+                    legacy_match = task
+
+            if exact_match is not None:
+                self._refresh_existing_task(exact_match, relative_files, options, target_task_type)
                 save_task_state_file(self._state)
-                return {"created": False, "task": self._summarize_task(task)}
+                return {"created": False, "task": self._summarize_task(exact_match)}
+
+            if legacy_match is not None:
+                self._refresh_existing_task(legacy_match, relative_files, options, target_task_type)
+                save_task_state_file(self._state)
+                return {"created": False, "task": self._summarize_task(legacy_match)}
 
             timestamp = now_timestamp()
             task_id = "task-" + uuid.uuid4().hex[:8]
@@ -392,6 +523,7 @@ class TaskStore(object):
             task = {
                 "id": task_id,
                 "name": task_name,
+                "taskType": target_task_type,
                 "directory": target_directory,
                 "files": relative_files,
                 "options": normalize_options(options),
@@ -548,13 +680,16 @@ class AnnotationApp(object):
     def list_tasks(self):
         return self.task_store.list_tasks()
 
-    def import_task(self, directory):
+    def import_task(self, directory, task_type):
         target_directory = self.require_directory(directory)
+        normalized_task_type = normalize_task_type(task_type)
         files = list_json_files(target_directory)
         if not files:
             raise ValueError("目录中没有找到 JSON 文件：%s" % target_directory)
-        options = self.collect_directory_options(target_directory)
-        return self.task_store.import_task(target_directory, files, options)
+        options = []
+        if normalized_task_type == TASK_TYPE_KEY_POINTS:
+            options = self.collect_directory_options(target_directory)
+        return self.task_store.import_task(target_directory, files, options, normalized_task_type)
 
     def split_task(self, task_id, part_count):
         return self.task_store.split_task(task_id, part_count)
@@ -567,10 +702,13 @@ class AnnotationApp(object):
             record = json.load(handle, object_pairs_hook=OrderedDict)
 
         gpt_item = find_conversation(record, "gpt")
-        if gpt_item is None:
-            raise ValueError("文件缺少 gpt 对话：%s" % json_path)
         human_item = find_conversation(record, "human")
-        payload = extract_json_payload(gpt_item.get("value", ""))
+        payload = OrderedDict()
+        if isinstance(gpt_item, dict):
+            try:
+                payload = extract_json_payload(gpt_item.get("value", ""))
+            except Exception:
+                payload = OrderedDict()
 
         item = {
             "directory": directory,
@@ -582,6 +720,7 @@ class AnnotationApp(object):
             "meta": record.get("meta", {}) if isinstance(record.get("meta"), dict) else {},
             "humanPrompt": human_item.get("value", "") if isinstance(human_item, dict) else "",
             "images": record.get("images", []) if isinstance(record.get("images"), list) else [],
+            "conversationPairs": build_conversation_pairs(record),
             "parsed": {
                 "hazardName": sanitize_annotation_value(payload.get("隐患名称", "")),
                 "overallResult": sanitize_annotation_value(payload.get("判断结果", "")),
@@ -687,6 +826,16 @@ class AnnotationApp(object):
             json.dump(record, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
 
+    def _save_conversations_to_path(self, json_path, conversation_pairs):
+        with open(json_path, "r", encoding="utf-8") as handle:
+            record = json.load(handle, object_pairs_hook=OrderedDict)
+
+        record["conversations"] = build_saved_conversations(conversation_pairs)
+
+        with open(json_path, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+
     def load_item(self, directory, index=None, options=None):
         target_directory = self.require_directory(directory)
         files = list_json_files(target_directory)
@@ -713,6 +862,7 @@ class AnnotationApp(object):
                 "partName": "",
                 "partIndex": 0,
                 "partCount": 0,
+                "taskType": "",
             },
         )
 
@@ -751,6 +901,7 @@ class AnnotationApp(object):
                 "partName": part.get("name", ""),
                 "partIndex": int(part.get("partIndex", 0) or 0),
                 "partCount": len(task.get("parts", [])),
+                "taskType": get_task_type(task),
             },
         )
 
@@ -847,6 +998,55 @@ class AnnotationApp(object):
             "options": normalized_options,
         }
 
+    def save_conversations(self, directory, index, conversation_pairs, task_id="", part_id=""):
+        if task_id or part_id:
+            session = self._resolve_task_session(task_id, part_id)
+            json_files = session["jsonFiles"]
+            relative_files = session["relativeFiles"]
+            target_index = max(0, min(int(index), len(json_files) - 1))
+            json_path = json_files[target_index]
+
+            self._save_conversations_to_path(json_path, conversation_pairs)
+
+            self.task_store.update_part_state(
+                task_id,
+                part_id,
+                last_index=target_index,
+                last_file=relative_files[target_index],
+            )
+            return {
+                "saved": True,
+                "filePath": json_path,
+                "relativePath": relative_files[target_index],
+                "index": target_index,
+                "conversationPairs": build_conversation_pairs(
+                    {"conversations": build_saved_conversations(conversation_pairs)}
+                ),
+            }
+
+        target_directory = self.require_directory(directory)
+        files = list_json_files(target_directory)
+        if not files:
+            raise ValueError("目录中没有找到 JSON 文件：%s" % target_directory)
+        target_index = max(0, min(int(index), len(files) - 1))
+        json_path = files[target_index]
+
+        self._save_conversations_to_path(json_path, conversation_pairs)
+
+        self.state_store.update(
+            target_directory,
+            last_index=target_index,
+            last_file=json_path,
+        )
+        return {
+            "saved": True,
+            "filePath": json_path,
+            "index": target_index,
+            "conversationPairs": build_conversation_pairs(
+                {"conversations": build_saved_conversations(conversation_pairs)}
+            ),
+        }
+
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
@@ -868,6 +1068,8 @@ class AnnotationHandler(BaseHTTPRequestHandler):
                 return self._serve_static_file("tasks.html")
             if route in ("/tasks", "/tasks/"):
                 return self._serve_static_file("tasks.html")
+            if route in ("/conversation-annotate", "/conversation-annotate/"):
+                return self._serve_static_file("conversation.html")
             if route in ("/annotate", "/annotate/"):
                 return self._serve_static_file("index.html")
             if route.startswith("/static/"):
@@ -880,10 +1082,13 @@ class AnnotationHandler(BaseHTTPRequestHandler):
                         "defaultDirectory": self.app.default_directory,
                         "defaultDirectoryExists": default_exists,
                         "defaultOptions": list(DEFAULT_OPTIONS),
+                        "taskTypes": list(SUPPORTED_TASK_TYPES),
                     }
                 )
             if route == "/api/tasks":
                 return self._send_json({"tasks": self.app.list_tasks()})
+            if route == "/api/conversations/session":
+                return self._handle_conversation_session(parsed.query)
             if route == "/api/session":
                 return self._handle_session(parsed.query)
             if route == "/api/item":
@@ -902,6 +1107,8 @@ class AnnotationHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/save":
                 return self._handle_save()
+            if parsed.path == "/api/conversations/save":
+                return self._handle_save_conversations()
             if parsed.path == "/api/state":
                 return self._handle_state()
             if parsed.path == "/api/tasks/import":
@@ -943,6 +1150,19 @@ class AnnotationHandler(BaseHTTPRequestHandler):
             }
         )
 
+    def _handle_conversation_session(self, query):
+        params = parse_qs(query)
+        directory = params.get("directory", [""])[0]
+        item = self.app.load_item(directory, options=[])
+        return self._send_json(
+            {
+                "directory": item["directory"],
+                "total": item["total"],
+                "currentIndex": item["index"],
+                "item": item,
+            }
+        )
+
     def _handle_item(self, query):
         params = parse_qs(query)
         index_text = params.get("index", ["0"])[0]
@@ -978,9 +1198,23 @@ class AnnotationHandler(BaseHTTPRequestHandler):
         )
         return self._send_json(result)
 
+    def _handle_save_conversations(self):
+        body = self._read_json_body()
+        result = self.app.save_conversations(
+            body.get("directory", ""),
+            body.get("index", 0),
+            body.get("conversationPairs", []),
+            task_id=body.get("taskId", ""),
+            part_id=body.get("partId", ""),
+        )
+        return self._send_json(result)
+
     def _handle_import_task(self):
         body = self._read_json_body()
-        result = self.app.import_task(body.get("directory", ""))
+        result = self.app.import_task(
+            body.get("directory", ""),
+            body.get("taskType", TASK_TYPE_KEY_POINTS),
+        )
         return self._send_json(result)
 
     def _handle_split_task(self):

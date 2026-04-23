@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>对话标注</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="topbar-row">
+          <div id="directoryPanel" class="directory-panel">
+            <div class="toolbar">
+              <label class="dir-caption" for="directoryInput">目录</label>
+              <input
+                id="directoryInput"
+                class="dir-input"
+                type="text"
+                placeholder="输入要遍历的目录"
+                spellcheck="false"
+              />
+              <button id="loadButton" class="primary">打开目录</button>
+            </div>
+          </div>
+          <div id="taskSessionPanel" class="task-session hidden">
+            <div class="task-session-caption">任务</div>
+            <div id="taskSessionTitle" class="task-session-title"></div>
+            <div id="taskSessionSubtitle" class="task-session-subtitle"></div>
+          </div>
+          <a class="nav-link" href="/">返回任务页</a>
+        </div>
+      </header>
+
+      <div id="messageBar" class="message-bar hidden"></div>
+
+      <main class="content-grid">
+        <section class="panel image-panel">
+          <section id="sampleMetaBar" class="sample-meta hidden">
+            <div class="sample-meta-field">
+              <span class="sample-meta-label">tag</span>
+              <span id="sampleTagText" class="sample-meta-value"></span>
+            </div>
+            <div class="sample-meta-field">
+              <span class="sample-meta-label">extra</span>
+              <span id="sampleExtraText" class="sample-meta-value"></span>
+            </div>
+          </section>
+          <div class="image-frame">
+            <img id="previewImage" alt="当前样本图片" />
+            <div id="imagePlaceholder" class="image-placeholder">
+              当前样本没有可显示的图片
+            </div>
+          </div>
+          <div class="image-footer">
+            <div class="image-actions">
+              <button id="prevButton">上一个</button>
+              <button id="saveButton">保存</button>
+              <button id="nextButton" class="primary">下一个</button>
+              <span id="imageBasenameText" class="image-basename"></span>
+            </div>
+            <div class="status-line">
+              <span id="progressText">未加载目录</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel detail-panel">
+          <section class="card">
+            <div class="card-header">
+              <h2>对话标注</h2>
+              <span class="panel-note">仅保存填写了回答的轮次</span>
+            </div>
+            <div id="conversationPairs" class="qa-pairs"></div>
+          </section>
+          <section class="card">
+            <div class="card-header">
+              <h2>图片完整路径</h2>
+            </div>
+            <div id="imagePathText" class="info-block"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/static/conversation.js"></script>
+  </body>
+</html>

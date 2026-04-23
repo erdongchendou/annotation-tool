@@ -30,13 +30,15 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
 button,
 select,
-input {
+input,
+textarea {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.84);
@@ -72,7 +74,8 @@ button.danger {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   padding: 4px 10px;
 }
@@ -202,6 +205,12 @@ select {
   white-space: nowrap;
 }
 
+.task-type-select {
+  flex: 0 0 132px;
+  min-width: 132px;
+  min-height: 30px;
+}
+
 .dir-caption,
 .summary-item span {
   color: var(--muted);
@@ -276,6 +285,19 @@ select {
 .task-card-title {
   display: grid;
   gap: 4px;
+}
+
+.task-type-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(155, 77, 35, 0.12);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .task-name {
@@ -412,7 +434,7 @@ select {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(520px, 1.28fr) minmax(380px, 0.82fr);
+  grid-template-columns: minmax(540px, 1.42fr) minmax(300px, 0.62fr);
   gap: 18px;
   align-items: start;
 }
@@ -660,6 +682,45 @@ select {
   cursor: default;
 }
 
+.qa-pairs {
+  display: grid;
+  gap: 10px;
+}
+
+.qa-pair-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(108, 86, 55, 0.1);
+}
+
+.qa-pair-header {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.qa-field {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.qa-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.qa-input {
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  line-height: 1.4;
+}
+
 @media (max-width: 1080px) {
   .sample-meta {
     width: 100%;
@@ -667,6 +728,12 @@ select {
 
   .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .qa-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: stretch;
   }
 
   .image-frame,

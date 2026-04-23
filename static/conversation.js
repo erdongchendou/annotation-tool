@@ -11,7 +11,6 @@ const state = {
   partCount: 0,
   index: 0,
   total: 0,
-  options: [],
   item: null,
   dirty: false,
   loading: false,
@@ -35,7 +34,7 @@ const elements = {
   sampleExtraText: document.getElementById("sampleExtraText"),
   imageBasenameText: document.getElementById("imageBasenameText"),
   imagePathText: document.getElementById("imagePathText"),
-  keypointsList: document.getElementById("keypointsList"),
+  conversationPairs: document.getElementById("conversationPairs"),
   messageBar: document.getElementById("messageBar"),
 };
 
@@ -51,8 +50,8 @@ function setMessage(message, type) {
 
 function setLoading(loading) {
   state.loading = loading;
-  elements.loadButton.disabled = loading || state.sessionType === "task";
   elements.directoryInput.disabled = loading || state.sessionType === "task";
+  elements.loadButton.disabled = loading || state.sessionType === "task";
   elements.prevButton.disabled = loading || state.index <= 0;
   elements.saveButton.disabled = loading || !state.item;
   elements.nextButton.disabled = loading || !state.item || state.index >= state.total - 1;
@@ -102,25 +101,28 @@ function updateSessionChrome() {
 }
 
 function maybeRedirectTaskPage(item) {
-  if (!item || item.sessionType !== "task" || item.taskType !== "QA") {
+  if (!item || item.sessionType !== "task" || item.taskType !== "key_points") {
     return false;
   }
 
-  const url = new URL("/conversation-annotate", window.location.href);
+  const url = new URL("/annotate", window.location.href);
   url.searchParams.set("taskId", item.taskId || state.taskId || "");
   url.searchParams.set("partId", item.partId || state.partId || "");
-  if (window.location.pathname === "/conversation-annotate") {
+  if (window.location.pathname === "/annotate") {
     return false;
   }
   window.location.replace(url.toString());
   return true;
 }
 
-function cloneKeypoints(keypoints) {
-  return (keypoints || []).map((item) => ({
-    name: item.name,
-    value: normalizeOptionValue(item.value),
-  }));
+function fetchJson(url, options) {
+  return fetch(url, options).then(async (response) => {
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "请求失败");
+    }
+    return data;
+  });
 }
 
 function joinMetaValues(...values) {
@@ -139,17 +141,16 @@ function getBasename(path) {
   return segments[segments.length - 1] || "";
 }
 
-function renderSampleMeta(item) {
-  const meta = item.meta || {};
-  elements.sampleTagText.textContent = joinMetaValues(meta.tag, meta.standard_hazard_name);
-  elements.sampleExtraText.textContent = joinMetaValues(
-    meta.hazard_or_not,
-    meta.extra_content
-  );
-  elements.sampleMetaBar.classList.remove("hidden");
+function sanitizeConversationText(text) {
+  return String(text === null || text === undefined ? "" : text)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\u3000/g, " ")
+    .trim();
 }
 
-function formatEditableValue(value) {
+function formatConversationValue(value) {
   if (value === null || value === undefined) {
     return "";
   }
@@ -166,241 +167,42 @@ function formatEditableValue(value) {
   }
 }
 
-function sanitizeEditableText(text) {
-  return String(text)
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
-    .replace(/\u00A0/g, " ")
-    .replace(/\u3000/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeOptionValue(value) {
-  return sanitizeEditableText(formatEditableValue(value));
-}
-
-function mergeOptionValue(value) {
-  const normalized = normalizeOptionValue(value);
-  if (!normalized || state.options.includes(normalized)) {
-    return;
-  }
-  state.options.push(normalized);
-}
-
-function mergeOptionValues(values) {
-  (values || []).forEach((value) => {
-    mergeOptionValue(value);
-  });
-}
-
-function collectOptionsFromItem(item) {
-  if (!item || !item.parsed) {
-    return;
-  }
-  mergeOptionValue(item.parsed.overallResult);
-  (item.parsed.keypoints || []).forEach((keypoint) => {
-    mergeOptionValue(keypoint.value);
-  });
-}
-
-function buildOptionChoices(currentValue, queryText) {
-  const values = [];
-  const seen = new Set();
-  const query = normalizeOptionValue(queryText).toLowerCase();
-
-  state.options.forEach((option) => {
-    const normalized = normalizeOptionValue(option);
-    if (!normalized || seen.has(normalized)) {
-      return;
-    }
-    seen.add(normalized);
-    if (!query || normalized.toLowerCase().includes(query)) {
-      values.push(normalized);
-    }
-  });
-
-  const current = normalizeOptionValue(currentValue);
-  if (current && !seen.has(current) && (!query || current.toLowerCase().includes(query))) {
-    values.push(current);
-  }
-
-  return values;
-}
-
-function closeAllComboboxes() {
-  document.querySelectorAll(".keypoint-dropdown").forEach((dropdown) => {
-    dropdown.classList.add("hidden");
-  });
-}
-
-function sanitizeCurrentItemValues() {
-  if (!state.item || !state.item.parsed) {
-    return;
-  }
-
-  const inputElements = Array.from(document.querySelectorAll(".keypoint-input"));
-  state.item.parsed.keypoints = (state.item.parsed.keypoints || []).map((item) => ({
-    ...item,
-    value: normalizeOptionValue(item.value),
+function cloneConversationPairs(pairs) {
+  const nextPairs = (pairs || []).slice(0, 3).map((pair) => ({
+    question: sanitizeConversationText(formatConversationValue(pair && pair.question)),
+    answer: sanitizeConversationText(formatConversationValue(pair && pair.answer)),
   }));
-  state.item.parsed.overallResult = normalizeOptionValue(state.item.parsed.overallResult);
-  state.options = Array.from(
-    new Set((state.options || []).map((option) => normalizeOptionValue(option)).filter(Boolean))
+
+  while (nextPairs.length < 3) {
+    nextPairs.push({ question: "", answer: "" });
+  }
+
+  return nextPairs;
+}
+
+function sanitizeCurrentConversationPairs() {
+  if (!state.item) {
+    return;
+  }
+  state.item.conversationPairs = cloneConversationPairs(state.item.conversationPairs);
+  document.querySelectorAll(".qa-input").forEach((input) => {
+    const pairIndex = Number(input.dataset.pairIndex);
+    const field = input.dataset.field;
+    if (!Number.isInteger(pairIndex) || !field) {
+      return;
+    }
+    input.value = state.item.conversationPairs[pairIndex][field];
+  });
+}
+
+function renderSampleMeta(item) {
+  const meta = item.meta || {};
+  elements.sampleTagText.textContent = joinMetaValues(meta.tag, meta.standard_hazard_name);
+  elements.sampleExtraText.textContent = joinMetaValues(
+    meta.hazard_or_not,
+    meta.extra_content
   );
-
-  inputElements.forEach((input) => {
-    input.value = normalizeOptionValue(input.value);
-  });
-}
-
-function createCombobox(value, onUpdate) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "keypoint-combobox";
-
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "keypoint-input";
-  input.value = normalizeOptionValue(value);
-  input.spellcheck = false;
-  input.placeholder = "点击选择或直接输入";
-
-  const dropdown = document.createElement("div");
-  dropdown.className = "keypoint-dropdown hidden";
-
-  function commitInputValue(nextValue) {
-    const normalizedValue = normalizeOptionValue(nextValue);
-    input.value = normalizedValue;
-    onUpdate(normalizedValue);
-    mergeOptionValue(normalizedValue);
-    return normalizedValue;
-  }
-
-  function renderDropdown(queryText = "") {
-    const values = buildOptionChoices(input.value, queryText);
-    dropdown.innerHTML = "";
-
-    if (!values.length) {
-      const empty = document.createElement("div");
-      empty.className = "keypoint-option empty";
-      empty.textContent = "无匹配项，可直接输入";
-      dropdown.appendChild(empty);
-      return;
-    }
-
-    values.forEach((optionValue) => {
-      const option = document.createElement("button");
-      option.type = "button";
-      option.className = "keypoint-option";
-      option.textContent = optionValue;
-      option.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-      });
-      option.addEventListener("click", () => {
-        commitInputValue(optionValue);
-        dropdown.classList.add("hidden");
-      });
-      dropdown.appendChild(option);
-    });
-  }
-
-  function openDropdown() {
-    closeAllComboboxes();
-    renderDropdown("");
-    dropdown.classList.remove("hidden");
-  }
-
-  input.addEventListener("focus", () => {
-    openDropdown();
-  });
-
-  input.addEventListener("click", () => {
-    openDropdown();
-  });
-
-  input.addEventListener("input", (event) => {
-    const nextValue = event.target.value.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
-    if (nextValue !== event.target.value) {
-      event.target.value = nextValue;
-    }
-    onUpdate(nextValue);
-    renderDropdown(nextValue);
-    dropdown.classList.remove("hidden");
-  });
-
-  input.addEventListener("change", (event) => {
-    commitInputValue(event.target.value);
-  });
-
-  input.addEventListener("blur", () => {
-    window.setTimeout(() => {
-      commitInputValue(input.value);
-      dropdown.classList.add("hidden");
-    }, 120);
-  });
-
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      dropdown.classList.add("hidden");
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commitInputValue(input.value);
-      dropdown.classList.add("hidden");
-      input.blur();
-    }
-  });
-
-  wrapper.appendChild(input);
-  wrapper.appendChild(dropdown);
-  return wrapper;
-}
-
-function appendEditableRow(labelText, value, onUpdate) {
-  const row = document.createElement("div");
-  row.className = "keypoint-row";
-
-  const label = document.createElement("div");
-  label.className = "keypoint-name";
-  label.textContent = labelText;
-
-  const control = document.createElement("div");
-  control.className = "keypoint-control";
-  control.appendChild(createCombobox(value, onUpdate));
-
-  row.appendChild(label);
-  row.appendChild(control);
-  elements.keypointsList.appendChild(row);
-}
-
-function renderKeypoints() {
-  elements.keypointsList.innerHTML = "";
-
-  state.item.parsed.keypoints.forEach((item, index) => {
-    appendEditableRow(item.name, item.value, (nextValue) => {
-      if (
-        normalizeOptionValue(state.item.parsed.keypoints[index].value) ===
-        normalizeOptionValue(nextValue)
-      ) {
-        return;
-      }
-      state.item.parsed.keypoints[index].value = nextValue;
-      state.dirty = true;
-      refreshButtons();
-    });
-  });
-
-  appendEditableRow("整体判断结果", state.item.parsed.overallResult, (nextValue) => {
-    if (
-      normalizeOptionValue(state.item.parsed.overallResult) === normalizeOptionValue(nextValue)
-    ) {
-      return;
-    }
-    state.item.parsed.overallResult = nextValue;
-    state.dirty = true;
-    refreshButtons();
-  });
+  elements.sampleMetaBar.classList.remove("hidden");
 }
 
 function renderImage(item) {
@@ -419,6 +221,71 @@ function renderImagePath(item) {
   elements.imagePathText.textContent = item.imagePath || "当前样本没有可显示的图片路径";
 }
 
+function updatePairField(index, field, value) {
+  if (!state.item || !state.item.conversationPairs[index]) {
+    return;
+  }
+  if (state.item.conversationPairs[index][field] === value) {
+    return;
+  }
+  state.item.conversationPairs[index][field] = value;
+  state.dirty = true;
+  refreshButtons();
+}
+
+function createPairInput(index, field, label, placeholder, value) {
+  const fieldBlock = document.createElement("label");
+  fieldBlock.className = "qa-field";
+
+  const caption = document.createElement("span");
+  caption.className = "qa-label";
+  caption.textContent = label;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "qa-input";
+  input.dataset.pairIndex = String(index);
+  input.dataset.field = field;
+  input.placeholder = placeholder;
+  input.value = value;
+  input.spellcheck = false;
+  input.addEventListener("input", (event) => {
+    updatePairField(index, field, event.target.value);
+  });
+  input.addEventListener("blur", (event) => {
+    const sanitized = sanitizeConversationText(event.target.value);
+    event.target.value = sanitized;
+    updatePairField(index, field, sanitized);
+  });
+
+  fieldBlock.appendChild(caption);
+  fieldBlock.appendChild(input);
+  return fieldBlock;
+}
+
+function renderConversationPairs() {
+  elements.conversationPairs.innerHTML = "";
+
+  state.item.conversationPairs.forEach((pair, index) => {
+    const card = document.createElement("section");
+    card.className = "qa-pair-card";
+
+    const header = document.createElement("div");
+    header.className = "qa-pair-header";
+    header.textContent = `第 ${index + 1} 组`;
+
+    card.appendChild(header);
+    card.appendChild(
+      createPairInput(index, "question", "问题", "问题可留空", pair.question || "")
+    );
+    card.appendChild(
+      createPairInput(index, "answer", "回答", "填写后会保存这一轮对话", pair.answer || "")
+    );
+
+    elements.conversationPairs.appendChild(card);
+  });
+}
+
 function renderItem(item) {
   if (maybeRedirectTaskPage(item)) {
     return;
@@ -426,49 +293,43 @@ function renderItem(item) {
 
   state.item = {
     ...item,
-    parsed: {
-      ...item.parsed,
-      overallResult: normalizeOptionValue(item.parsed.overallResult),
-      keypoints: cloneKeypoints(item.parsed.keypoints),
-    },
+    conversationPairs: cloneConversationPairs(item.conversationPairs),
   };
   state.sessionType = item.sessionType || "directory";
-  state.directory = item.directory;
+  state.directory = item.directory || "";
   state.taskId = item.taskId || "";
   state.taskName = item.taskName || "";
   state.partId = item.partId || "";
   state.partName = item.partName || "";
   state.partIndex = Number.isFinite(item.partIndex) ? item.partIndex : 0;
   state.partCount = Number.isFinite(item.partCount) ? item.partCount : 0;
-  state.index = item.index;
-  state.total = item.total;
+  state.index = item.index || 0;
+  state.total = item.total || 0;
   state.dirty = false;
 
   elements.directoryInput.value = state.directory;
-  elements.progressText.textContent = `第 ${state.index + 1} / ${state.total} 个文件`;
   elements.imageBasenameText.textContent = getBasename(state.item.imagePath);
 
-  mergeOptionValues(item.options || []);
-  collectOptionsFromItem(state.item);
   updateSessionChrome();
   renderImage(state.item);
   renderImagePath(state.item);
   renderSampleMeta(state.item);
-  renderKeypoints();
+  renderConversationPairs();
   refreshButtons();
 }
 
 function refreshButtons() {
   elements.prevButton.disabled = state.loading || state.index <= 0;
-  elements.nextButton.disabled =
-    state.loading || !state.item || state.index >= state.total - 1;
+  elements.nextButton.disabled = state.loading || !state.item || state.index >= state.total - 1;
   elements.saveButton.disabled = state.loading || !state.item;
   elements.loadButton.disabled = state.loading || state.sessionType === "task";
   elements.directoryInput.disabled = state.loading || state.sessionType === "task";
 
   if (!state.item) {
+    elements.progressText.textContent = "未加载目录";
     return;
   }
+
   const sessionSuffix =
     state.sessionType === "task" && state.partName ? ` | ${state.partName}` : "";
   if (state.dirty) {
@@ -478,28 +339,23 @@ function refreshButtons() {
   }
 }
 
-async function fetchJson(url, options) {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "请求失败");
-  }
-  return data;
-}
-
 async function loadSession(directory) {
+  const session =
+    typeof directory === "object"
+      ? directory
+      : { directory: typeof directory === "string" ? directory.trim() : "" };
+  if (!hasTaskContext(session) && !session.directory) {
+    setMessage("请先输入要遍历的目录。", "error");
+    return;
+  }
+
   setLoading(true);
   setMessage("", "info");
   try {
-    const session =
-      typeof directory === "object"
-        ? directory
-        : { directory: directory || elements.directoryInput.value.trim() };
-    const data = await fetchJson(`/api/session?${buildSessionParams(session).toString()}`);
-    state.options = [];
-    mergeOptionValues(data.options || []);
+    const params = buildSessionParams(session).toString();
+    const url = hasTaskContext(session) ? `/api/session?${params}` : `/api/conversations/session?${params}`;
+    const data = await fetchJson(url);
     renderItem(data.item);
-    setMessage("", "info");
   } catch (error) {
     setMessage(error.message, "error");
   } finally {
@@ -517,7 +373,7 @@ async function loadItem(index) {
   setLoading(true);
   try {
     const params = buildSessionParams();
-    params.set("index", index);
+    params.set("index", String(index));
     const item = await fetchJson(`/api/item?${params.toString()}`);
     renderItem(item);
     setMessage("", "info");
@@ -532,25 +388,27 @@ async function saveCurrent(showMessage = true) {
   if (!state.item) {
     return false;
   }
-  sanitizeCurrentItemValues();
+
+  sanitizeCurrentConversationPairs();
   setLoading(true);
   try {
-    await fetchJson("/api/save", {
+    const result = await fetchJson("/api/conversations/save", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sessionType: state.sessionType,
         directory: state.directory,
         taskId: state.taskId,
         partId: state.partId,
         index: state.index,
-        keypoints: state.item.parsed.keypoints,
-        overallResult: state.item.parsed.overallResult,
-        options: state.options,
+        conversationPairs: state.item.conversationPairs,
       }),
     });
+    if (result.conversationPairs) {
+      state.item.conversationPairs = cloneConversationPairs(result.conversationPairs);
+      renderConversationPairs();
+    }
     state.dirty = false;
     refreshButtons();
     if (showMessage) {
@@ -607,7 +465,7 @@ function registerEvents() {
         return;
       }
     }
-    await loadSession(elements.directoryInput.value.trim());
+    await loadSession(elements.directoryInput.value);
   });
 
   elements.saveButton.addEventListener("click", async () => {
@@ -626,12 +484,6 @@ function registerEvents() {
     if (event.key === "Enter") {
       event.preventDefault();
       elements.loadButton.click();
-    }
-  });
-
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest(".keypoint-combobox")) {
-      closeAllComboboxes();
     }
   });
 
@@ -665,30 +517,27 @@ function registerEvents() {
 }
 
 async function bootstrap() {
-  setLoading(true);
-  try {
-    const config = await fetchJson("/api/config");
-    elements.directoryInput.value = config.defaultDirectory || "";
-    registerEvents();
-    const taskId = pageParams.get("taskId") || "";
-    const partId = pageParams.get("partId") || "";
+  registerEvents();
+  refreshButtons();
 
-    if (!taskId || !partId) {
-      window.location.replace("/");
-      return;
-    }
-
+  const taskId = pageParams.get("taskId") || "";
+  const partId = pageParams.get("partId") || "";
+  if (taskId && partId) {
     state.sessionType = "task";
     state.taskId = taskId;
     state.partId = partId;
     updateSessionChrome();
     await loadSession({ taskId, partId });
-  } catch (error) {
-    registerEvents();
-    setMessage(error.message, "error");
-  } finally {
-    setLoading(false);
+    return;
   }
+
+  const directory = pageParams.get("directory") || "";
+  if (!directory) {
+    return;
+  }
+
+  elements.directoryInput.value = directory;
+  await loadSession(directory);
 }
 
 bootstrap();
